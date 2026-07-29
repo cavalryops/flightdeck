@@ -89,12 +89,25 @@ export async function startAcp(agent: Agent, config: ServerConfig, initialPrompt
 
   const effectiveProvider = agent.provider || config.provider || 'copilot';
 
+  // Per-agent overrides win over the global provider.* settings. This is what
+  // allows heterogeneous backends inside one crew: two agents can both use the
+  // `copilot` provider while one carries BYOK env vars pointing at a local
+  // OpenAI-compatible server and the other uses the GitHub Copilot subscription.
+  const mergedEnvOverride = {
+    ...(config.providerEnvOverride ?? {}),
+    ...(agent.envOverride ?? {}),
+  };
+
+  const baseArgsOverride = agent.extraArgs?.length
+    ? [...(config.providerArgsOverride ?? []), ...agent.extraArgs]
+    : config.providerArgsOverride;
+
   const adapterConfig = {
     provider: effectiveProvider,
     model: rawModel,
-    binaryOverride: config.providerBinaryOverride,
-    argsOverride: config.providerArgsOverride,
-    envOverride: config.providerEnvOverride,
+    binaryOverride: agent.binaryOverride || config.providerBinaryOverride,
+    argsOverride: baseArgsOverride,
+    envOverride: Object.keys(mergedEnvOverride).length > 0 ? mergedEnvOverride : undefined,
     cloudProvider: config.cloudProvider,
     cliArgs: config.cliArgs,
     cliCommand: config.cliCommand,

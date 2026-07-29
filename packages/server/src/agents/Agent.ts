@@ -185,6 +185,18 @@ export class Agent {
   public isSystemAgent: boolean = false;
   /** CLI provider used to spawn this agent (e.g. 'copilot', 'claude', 'cursor') */
   public provider?: string;
+  /**
+   * Per-agent spawn overrides. These take precedence over the global
+   * `provider.*Override` settings in ServerConfig, which lets a single crew
+   * mix backends — e.g. one Copilot agent on the GitHub subscription and
+   * another Copilot agent pointed at a local OpenAI-compatible endpoint via
+   * Copilot CLI's BYOK environment variables.
+   */
+  public envOverride?: Record<string, string>;
+  /** Per-agent extra CLI args, appended after the provider's base args. */
+  public extraArgs?: string[];
+  /** Per-agent binary override (rarely needed; e.g. a wrapper script). */
+  public binaryOverride?: string;
   /** Adapter backend type (e.g. 'acp') */
   public backend?: string;
   /** Organized artifact storage path ($FLIGHTDECK_STATE_DIR/artifacts/{projectId}/sessions/{leadId}/{role}-{shortId}/) */
@@ -232,6 +244,13 @@ export class Agent {
     this.parentId = parentId ? asAgentId(parentId) : undefined;
     this.createdAt = new Date();
     this.peers = peers;
+    // Seed per-agent spawn overrides. Precedence: explicit role definition
+    // fields, then the YAML `roles:` overrides from ServerConfig. Callers may
+    // still set these on the instance before start() for one-off agents.
+    const roleCfg = config.roleOverrides?.[role.id];
+    this.provider ??= role.provider ?? roleCfg?.provider;
+    this.envOverride ??= role.envOverride ?? roleCfg?.envOverride;
+    this.extraArgs ??= role.extraArgs ?? roleCfg?.extraArgs;
   }
 
   start(): void {

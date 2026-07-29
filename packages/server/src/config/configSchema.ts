@@ -27,6 +27,15 @@ const modelsSchema = z.object({
 
 const roleOverrideSchema = z.object({
   model: z.string().optional(),
+  /** CLI provider for this role (falls back to global provider.id). */
+  provider: z.string().optional(),
+  /**
+   * Extra env vars merged over provider.envOverride for this role's processes.
+   * Enables mixed backends in one crew (e.g. Copilot CLI BYOK -> local server).
+   */
+  envOverride: z.record(z.string(), z.string()).optional(),
+  /** Extra CLI args appended to the provider's base args for this role. */
+  extraArgs: z.array(z.string()).optional(),
 }).passthrough();
 
 // ── Provider schema ────────────────────────────────────────

@@ -166,6 +166,9 @@ export async function createContainer(opts: ContainerConfig): Promise<ServiceCon
   // Bridge YAML provider config → ServerConfig so all services see the configured provider
   const yamlProvider = configStore.current.provider;
   updateConfig(toProviderConfig(yamlProvider));
+  // Bridge YAML per-role overrides → ServerConfig so agents can carry their own
+  // provider/env/args (mixed backends within a single crew).
+  updateConfig({ roleOverrides: configStore.current.roles as ServerConfig['roleOverrides'] });
   // Re-read config so all services see restored values
   const effectiveConfig = getConfig();
 

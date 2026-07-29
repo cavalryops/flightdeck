@@ -23,6 +23,17 @@ export interface ServerConfig {
   providerArgsOverride?: string[];
   /** Extra env vars for the CLI process (from config YAML provider.envOverride) */
   providerEnvOverride?: Record<string, string>;
+  /**
+   * Per-role spawn overrides (from config YAML `roles:`). Merged over the
+   * global provider.* settings when an agent of that role is spawned, which
+   * is what allows one crew to mix model backends.
+   */
+  roleOverrides?: Record<string, {
+    model?: string;
+    provider?: string;
+    envOverride?: Record<string, string>;
+    extraArgs?: string[];
+  }>;
   /** Structured cloud provider config (Bedrock, Vertex, Anthropic) */
   cloudProvider?: CloudProvider;
   maxConcurrentAgents: number;
