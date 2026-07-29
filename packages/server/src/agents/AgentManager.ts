@@ -20,6 +20,7 @@ import type { CapabilityInjector } from './capabilities/CapabilityInjector.js';
 import type { TaskTemplateRegistry } from '../tasks/TaskTemplates.js';
 import type { TaskDecomposer } from '../tasks/TaskDecomposer.js';
 import type { WorktreeManager } from '../coordination/files/WorktreeManager.js';
+import { usesCustomEndpoint } from '../adapters/AdapterFactory.js';
 import type { CostTracker } from './CostTracker.js';
 import type { MessageQueueStore } from '../persistence/MessageQueueStore.js';
 import type { AgentRosterRepository } from '../db/AgentRosterRepository.js';
@@ -451,7 +452,29 @@ export class AgentManager extends TypedEmitter<AgentManagerEvents> {
     }
 
     const agent = new Agent(effectiveRole, this.config, task, parentId, peers, id);
-    agent.model = effectiveModel ?? '';
+    // Model precedence: explicit request > project model config > per-role YAML
+    // override > role built-in default (resolved later in AgentAcpBridge).
+    //
+    // EXCEPTION: when the role is pinned to a custom endpoint (BYOK / local
+    // inference server), the per-role model is authoritative and outranks the
+    // requested one. A lead delegating work has no way to know which models a
+    // local server hosts — it names models from the built-in catalog — and
+    // asking a local endpoint for e.g. `claude-opus-4.8` fails the request
+    // outright. Copilot CLI also derives tool support and prompting strategy
+    // from the model ID, so a mismatch breaks tool calling even when the
+    // request succeeds.
+    const roleOverride = this.config.roleOverrides?.[role.id];
+    const rolePinnedToCustomEndpoint =
+      !!roleOverride?.model && usesCustomEndpoint(roleOverride.envOverride);
+    if (rolePinnedToCustomEndpoint && effectiveModel && effectiveModel !== roleOverride!.model) {
+      logger.info({
+        module: 'config',
+        msg: `Role "${role.id}" targets a custom endpoint — using its configured model "${roleOverride!.model}" instead of requested "${effectiveModel}"`,
+      });
+    }
+    agent.model = rolePinnedToCustomEndpoint
+      ? roleOverride!.model!
+      : (effectiveModel ?? roleOverride?.model ?? '');
     if (cwd) agent.cwd = cwd;
     if (resumeSessionId) agent.resumeSessionId = resumeSessionId;
     if (resumeSessionId) agent._setResuming();
@@ -1303,3 +1326,4 @@ export class AgentManager extends TypedEmitter<AgentManagerEvents> {
     }
   }
 }
+

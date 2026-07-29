@@ -142,7 +142,9 @@ describe('AgentAcpBridge — per-agent backend overrides', () => {
     expect(copilotCfg.envOverride).toBeUndefined();
   });
 
-  it('appends per-agent extraArgs after the global args', async () => {
+  it('passes per-agent extraArgs separately so preset args are not clobbered', async () => {
+    // argsOverride REPLACES the provider preset; extraArgs must be additive,
+    // otherwise adding a flag would drop required ones like `--acp --stdio`.
     const agent = createFakeAgent({
       provider: 'copilot',
       extraArgs: ['--additional-mcp-config', '@/repo/.mcp.json'],
@@ -151,9 +153,9 @@ describe('AgentAcpBridge — per-agent backend overrides', () => {
 
     await startAcp(agent, config);
 
-    expect(adapterConfigArg().argsOverride).toEqual([
-      '--acp', '--stdio', '--additional-mcp-config', '@/repo/.mcp.json',
-    ]);
+    const cfg = adapterConfigArg();
+    expect(cfg.argsOverride).toEqual(['--acp', '--stdio']);
+    expect(cfg.extraArgs).toEqual(['--additional-mcp-config', '@/repo/.mcp.json']);
   });
 
   it('prefers a per-agent binaryOverride over the global one', async () => {
@@ -216,3 +218,4 @@ describe('AgentAcpBridge — per-agent backend overrides', () => {
     expect(adapterConfigArg().envOverride).toEqual({ ANTHROPIC_API_KEY: 'sk' });
   });
 });
+

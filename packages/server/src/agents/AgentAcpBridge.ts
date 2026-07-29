@@ -120,15 +120,13 @@ export async function startAcp(agent: Agent, config: ServerConfig, initialPrompt
   };
 
   const agentExtraArgs = agentOverridesApply ? agent.extraArgs : undefined;
-  const baseArgsOverride = agentExtraArgs?.length
-    ? [...(config.providerArgsOverride ?? []), ...agentExtraArgs]
-    : config.providerArgsOverride;
 
   const adapterConfig = {
     provider: effectiveProvider,
     model: rawModel,
     binaryOverride: (agentOverridesApply ? agent.binaryOverride : undefined) || config.providerBinaryOverride,
-    argsOverride: baseArgsOverride,
+    argsOverride: config.providerArgsOverride,
+    extraArgs: agentExtraArgs,
     envOverride: Object.keys(mergedEnvOverride).length > 0 ? mergedEnvOverride : undefined,
     cloudProvider: config.cloudProvider,
     cliArgs: config.cliArgs,

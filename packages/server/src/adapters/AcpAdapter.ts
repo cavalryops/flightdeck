@@ -41,7 +41,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Pro
   ]);
 }
 
-const SDK_TIMEOUT_MS = 30_000;
+/**
+ * Timeout for ACP spawn/newSession.
+ *
+ * 30s is ample for a hosted provider, but a local inference server may need
+ * far longer on the first request: llama.cpp-class servers load the weights
+ * on demand (tens of seconds for a 20GB+ model) before the session can be
+ * established. Tunable via FLIGHTDECK_ACP_TIMEOUT_MS so local/BYOK backends
+ * are not killed mid-load.
+ */
+const SDK_TIMEOUT_MS = Number(process.env.FLIGHTDECK_ACP_TIMEOUT_MS) || 30_000;
 
 /** Maximum number of buffered system notes before oldest entries are dropped. */
 const MAX_SYSTEM_NOTE_BUFFER = 50;

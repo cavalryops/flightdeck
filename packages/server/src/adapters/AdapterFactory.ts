@@ -36,6 +36,13 @@ export interface AdapterConfig {
   binaryOverride?: string;
   /** Override the preset args */
   argsOverride?: string[];
+  /**
+   * Extra args APPENDED after the resolved base args. Unlike `argsOverride`,
+   * which replaces the provider preset entirely, these are additive — so a
+   * caller can add flags such as `--additional-mcp-config` without having to
+   * restate the preset's own args (e.g. `--acp --stdio`).
+   */
+  extraArgs?: string[];
   /** Extra environment variables for CLI process */
   envOverride?: Record<string, string>;
   /** Structured cloud provider config (Bedrock, Vertex, Anthropic) — translated to env vars */
@@ -119,7 +126,12 @@ export function buildStartOptions(
 
   // Apply config overrides (binaryOverride, argsOverride, envOverride)
   const binary = config.binaryOverride || preset?.binary || config.cliCommand || 'copilot';
-  const baseArgs = config.argsOverride || preset?.args;
+  // argsOverride REPLACES the preset args; extraArgs are APPENDED to whatever
+  // won, so additive flags never clobber required ones like `--acp --stdio`.
+  const resolvedBaseArgs = config.argsOverride || preset?.args;
+  const baseArgs = config.extraArgs?.length
+    ? [...(resolvedBaseArgs ?? []), ...config.extraArgs]
+    : resolvedBaseArgs;
 
   // Merge env: cloudProvider → preset → explicit envOverride (last wins)
   const cloudEnv = cloudProviderToEnv(config.cloudProvider);
