@@ -251,6 +251,12 @@ export class Agent {
     this.provider ??= role.provider ?? roleCfg?.provider;
     this.envOverride ??= role.envOverride ?? roleCfg?.envOverride;
     this.extraArgs ??= role.extraArgs ?? roleCfg?.extraArgs;
+    // The model must follow the same precedence. Copilot CLI's `--model` flag
+    // outranks COPILOT_MODEL, and the model ID selects tool support and
+    // prompting strategy — so a role pointed at a local backend MUST also pin
+    // the local model name, or the CLI will prompt a Qwen/Llama model as if it
+    // were the role's default (e.g. Claude) and tool calls silently fail.
+    if (!this.model && roleCfg?.model) this.model = roleCfg.model;
   }
 
   start(): void {

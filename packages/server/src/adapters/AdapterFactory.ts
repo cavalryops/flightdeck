@@ -97,8 +97,18 @@ export function buildStartOptions(
   const providerId = (config.provider || 'copilot') as ProviderId;
   const preset = getPreset(providerId);
 
-  // Resolve model through cross-CLI model resolver
-  const resolution = config.model ? resolveModel(config.model, providerId) : undefined;
+  // Resolve model through cross-CLI model resolver.
+  //
+  // Skipped when the spawn env redirects the CLI at a custom OpenAI-compatible
+  // endpoint (BYOK / local inference server). In that case flightdeck's model
+  // catalog is not authoritative — the local server's is — and resolving would
+  // silently rewrite e.g. `qwen3.6-35b-a3b` to the provider's standard tier.
+  // That mismatch is not cosmetic: the model ID selects the CLI's tool-support
+  // and prompting strategy, so a rewritten ID makes tool calls fail while the
+  // model confabulates their results.
+  const resolution = (config.model && !usesCustomEndpoint(config.envOverride))
+    ? resolveModel(config.model, providerId)
+    : (config.model ? { model: config.model, translated: false, original: config.model } : undefined);
 
   if (resolution?.translated && resolution.reason) {
     logger.info({
@@ -184,4 +194,28 @@ export async function createAdapterForProvider(config: AdapterConfig): Promise<A
   const { AcpAdapter } = await import('./AcpAdapter.js');
   const adapter = new AcpAdapter();
   return { adapter, backend: 'acp', fallback: false };
+}
+
+// ── Custom endpoint detection ───────────────────────────────
+
+/**
+ * Env var names that redirect a provider CLI at a user-supplied
+ * OpenAI-compatible endpoint (BYOK / local inference server).
+ */
+const CUSTOM_ENDPOINT_ENV_KEYS = [
+  'COPILOT_PROVIDER_BASE_URL',
+  'ANTHROPIC_BASE_URL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'GEMINI_BASE_URL',
+];
+
+/**
+ * True when the spawn environment points the CLI at a custom endpoint, meaning
+ * the remote server owns the model catalog and flightdeck must pass the model
+ * name through verbatim.
+ */
+export function usesCustomEndpoint(env?: Record<string, string>): boolean {
+  if (!env) return false;
+  return CUSTOM_ENDPOINT_ENV_KEYS.some((k) => !!env[k]);
 }
