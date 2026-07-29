@@ -5,13 +5,35 @@ import { validateBody, configPatchSchema } from '../validation/schemas.js';
 import type { AppContext } from './context.js';
 import { logger } from '../utils/logger.js';
 
+/**
+ * Strip secrets from a ServerConfig before returning it over the API.
+ *
+ * `roleOverrides[*].envOverride` carries the environment handed to a spawned
+ * provider CLI, which for a BYOK/local endpoint includes credentials such as
+ * COPILOT_PROVIDER_API_KEY. Clients only need to know which model and provider
+ * a role is pinned to, so the env is replaced with a boolean marker.
+ */
+export function redactConfigSecrets(config: ServerConfig): Omit<ServerConfig, 'roleOverrides'> & {
+  roleOverrides?: Record<string, { model?: string; provider?: string; extraArgs?: string[]; hasEnvOverride?: true }>;
+} {
+  const { roleOverrides, ...rest } = config;
+  if (!roleOverrides) return rest;
+  const safe = Object.fromEntries(
+    Object.entries(roleOverrides).map(([roleId, o]) => {
+      const { envOverride, ...keep } = o;
+      return [roleId, envOverride ? { ...keep, hasEnvOverride: true as const } : keep];
+    }),
+  );
+  return { ...rest, roleOverrides: safe };
+}
+
 export function configRoutes(ctx: AppContext): Router {
   const { agentManager } = ctx;
   const router = Router();
 
   // --- Config ---
   router.get('/config', (_req, res) => {
-    res.json(getConfig());
+    res.json(redactConfigSecrets(getConfig()));
   });
 
   // GET /config/yaml — returns only the oversight section (never expose secrets like API keys)
