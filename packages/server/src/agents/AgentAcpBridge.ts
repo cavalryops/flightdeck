@@ -93,19 +93,41 @@ export async function startAcp(agent: Agent, config: ServerConfig, initialPrompt
   // allows heterogeneous backends inside one crew: two agents can both use the
   // `copilot` provider while one carries BYOK env vars pointing at a local
   // OpenAI-compatible server and the other uses the GitHub Copilot subscription.
+  //
+  // IMPORTANT: overrides are provider-scoped. Upstream clears the global
+  // overrides whenever it falls back to a different provider (see "clear
+  // provider overrides when falling back to a different provider"), because a
+  // binary/args/env tuple written for provider A is meaningless — or harmful —
+  // for provider B. We honour the same invariant per agent: the agent's
+  // overrides are only applied when the agent pinned the provider they were
+  // written for and that provider is the one actually being spawned.
+  const agentOverridesApply = !!agent.provider && agent.provider === effectiveProvider;
+
+  if (!agentOverridesApply && (agent.envOverride || agent.extraArgs || agent.binaryOverride)) {
+    logger.warn({
+      module: 'agent-bridge',
+      msg: 'Ignoring per-agent overrides — agent did not pin a provider, or the effective provider differs (fallback). Set `provider` on the role alongside its overrides.',
+      agentId: agent.id,
+      role: agent.role.id,
+      declaredProvider: agent.provider ?? '(none)',
+      effectiveProvider,
+    });
+  }
+
   const mergedEnvOverride = {
     ...(config.providerEnvOverride ?? {}),
-    ...(agent.envOverride ?? {}),
+    ...(agentOverridesApply ? (agent.envOverride ?? {}) : {}),
   };
 
-  const baseArgsOverride = agent.extraArgs?.length
-    ? [...(config.providerArgsOverride ?? []), ...agent.extraArgs]
+  const agentExtraArgs = agentOverridesApply ? agent.extraArgs : undefined;
+  const baseArgsOverride = agentExtraArgs?.length
+    ? [...(config.providerArgsOverride ?? []), ...agentExtraArgs]
     : config.providerArgsOverride;
 
   const adapterConfig = {
     provider: effectiveProvider,
     model: rawModel,
-    binaryOverride: agent.binaryOverride || config.providerBinaryOverride,
+    binaryOverride: (agentOverridesApply ? agent.binaryOverride : undefined) || config.providerBinaryOverride,
     argsOverride: baseArgsOverride,
     envOverride: Object.keys(mergedEnvOverride).length > 0 ? mergedEnvOverride : undefined,
     cloudProvider: config.cloudProvider,

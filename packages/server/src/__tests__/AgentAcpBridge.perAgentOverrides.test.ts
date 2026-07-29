@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Mock logger ───────────────────────────────────────────────────
+const warn = vi.fn();
 vi.mock('../utils/logger.js', () => {
   const { AsyncLocalStorage } = require('node:async_hooks');
   return {
-    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    logger: { info: vi.fn(), warn: (...a: any[]) => warn(...a), error: vi.fn(), debug: vi.fn() },
     logContext: new AsyncLocalStorage(),
   };
 });
@@ -86,7 +87,7 @@ function adapterConfigArg() {
 }
 
 describe('AgentAcpBridge — per-agent backend overrides', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); warn.mockClear(); });
   afterEach(() => vi.restoreAllMocks());
 
   it('falls back to the global provider env when the agent has none', async () => {
@@ -100,6 +101,7 @@ describe('AgentAcpBridge — per-agent backend overrides', () => {
 
   it('merges per-agent env over global env, agent winning on conflict', async () => {
     const agent = createFakeAgent({
+      provider: 'copilot',
       envOverride: {
         COPILOT_PROVIDER_BASE_URL: 'http://127.0.0.1:8090/v1',
         GLOBAL_VAR: 'agent-wins',
@@ -117,9 +119,9 @@ describe('AgentAcpBridge — per-agent backend overrides', () => {
   });
 
   it('isolates backends between two agents on the SAME provider', async () => {
-    // This is the core requirement: one crew, one provider (copilot),
-    // two different model backends.
+    // The core requirement: one crew, one provider, two model backends.
     const localAgent = createFakeAgent({
+      provider: 'copilot',
       envOverride: {
         COPILOT_PROVIDER_BASE_URL: 'http://127.0.0.1:8090/v1',
         COPILOT_MODEL: 'qwen3.6-35b-a3b',
@@ -130,20 +132,21 @@ describe('AgentAcpBridge — per-agent backend overrides', () => {
 
     (createAdapterForProvider as any).mockClear();
 
-    const copilotAgent = createFakeAgent({ id: 'agent-2' });
+    const copilotAgent = createFakeAgent({ id: 'agent-2', provider: 'copilot' });
     await startAcp(copilotAgent, baseConfig);
     const copilotCfg = adapterConfigArg();
 
-    // Same provider…
     expect(localCfg.provider).toBe('copilot');
     expect(copilotCfg.provider).toBe('copilot');
-    // …different backends.
     expect(localCfg.envOverride?.COPILOT_PROVIDER_BASE_URL).toBe('http://127.0.0.1:8090/v1');
     expect(copilotCfg.envOverride).toBeUndefined();
   });
 
   it('appends per-agent extraArgs after the global args', async () => {
-    const agent = createFakeAgent({ extraArgs: ['--additional-mcp-config', '@/repo/.mcp.json'] });
+    const agent = createFakeAgent({
+      provider: 'copilot',
+      extraArgs: ['--additional-mcp-config', '@/repo/.mcp.json'],
+    });
     const config = { ...baseConfig, providerArgsOverride: ['--acp', '--stdio'] };
 
     await startAcp(agent, config);
@@ -154,11 +157,62 @@ describe('AgentAcpBridge — per-agent backend overrides', () => {
   });
 
   it('prefers a per-agent binaryOverride over the global one', async () => {
-    const agent = createFakeAgent({ binaryOverride: '/custom/copilot-wrapper' });
+    const agent = createFakeAgent({ provider: 'copilot', binaryOverride: '/custom/copilot-wrapper' });
     const config = { ...baseConfig, providerBinaryOverride: '/global/copilot' };
 
     await startAcp(agent, config);
 
     expect(adapterConfigArg().binaryOverride).toBe('/custom/copilot-wrapper');
+  });
+
+  // ── Provider-scoping invariant ────────────────────────────────────
+  // Upstream clears global overrides when falling back to a different provider
+  // (commit "clear provider overrides when falling back to a different
+  // provider"), because an env tuple written for provider A is meaningless or
+  // harmful for provider B. Per-agent overrides honour the same rule.
+
+  it('IGNORES per-agent overrides when the role did not pin a provider', async () => {
+    // Without a pinned provider we cannot know which provider these vars target
+    // — the global provider may have fallen back to a different CLI.
+    const agent = createFakeAgent({
+      envOverride: { COPILOT_PROVIDER_BASE_URL: 'http://127.0.0.1:8090/v1' },
+      extraArgs: ['--danger'],
+      binaryOverride: '/custom/bin',
+    });
+    const config = { ...baseConfig, provider: 'claude', providerBinaryOverride: '/global/claude' };
+
+    await startAcp(agent, config);
+
+    const cfg = adapterConfigArg();
+    expect(cfg.provider).toBe('claude');
+    // Copilot BYOK vars must NOT leak into a Claude process.
+    expect(cfg.envOverride).toBeUndefined();
+    expect(cfg.argsOverride).toBeUndefined();
+    expect(cfg.binaryOverride).toBe('/global/claude');
+  });
+
+  it('warns when per-agent overrides are dropped so the misconfig is visible', async () => {
+    const agent = createFakeAgent({
+      envOverride: { COPILOT_PROVIDER_BASE_URL: 'http://127.0.0.1:8090/v1' },
+    });
+
+    await startAcp(agent, { ...baseConfig, provider: 'claude' });
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        module: 'agent-bridge',
+        declaredProvider: '(none)',
+        effectiveProvider: 'claude',
+      }),
+    );
+  });
+
+  it('still applies GLOBAL overrides when per-agent ones are dropped', async () => {
+    const agent = createFakeAgent({ envOverride: { X: '1' } });
+    const config = { ...baseConfig, provider: 'claude', providerEnvOverride: { ANTHROPIC_API_KEY: 'sk' } };
+
+    await startAcp(agent, config);
+
+    expect(adapterConfigArg().envOverride).toEqual({ ANTHROPIC_API_KEY: 'sk' });
   });
 });
