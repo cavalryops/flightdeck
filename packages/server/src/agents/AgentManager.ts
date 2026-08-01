@@ -335,24 +335,48 @@ export class AgentManager extends TypedEmitter<AgentManagerEvents> {
   }
 
   /**
-   * Resolve the effective model for a role based on project model config.
+   * Resolve the effective model for a role.
    *
-   * Priority:
-   *   1. If the requested model is in the allowed list → use it
-   *   2. If the requested model is NOT in the allowed list → fall back to role default, log warning
-   *   3. If no model requested → use the first allowed model from project config (role default)
-   *   4. If no project config or no restrictions for role → return requestedModel unchanged
+   * Precedence, highest first:
+   *   1. Explicit per-project model config — a whitelist the user chose for
+   *      THIS project. A requested model in the list is honoured; one outside
+   *      it is overridden to the list's first entry.
+   *   2. An explicitly requested model, when the project defines no whitelist
+   *      for the role (nothing to enforce against).
+   *   3. The per-role `model:` from config YAML (`roles.<id>.model`).
+   *   4. DEFAULT_MODEL_CONFIG — the built-in default, so a project that
+   *      configures nothing still gets a sensible model.
+   *
+   * The ordering of 3 above 4 is the point. getModelConfig() merges
+   * DEFAULT_MODEL_CONFIG into every project, so reading the merged view as a
+   * whitelist gave every role an "explicit" entry and silently outranked the
+   * config file — an architect pinned to claude-opus-5 still spawned on the
+   * stale built-in default. Built-in defaults are a fallback, not policy.
    */
   resolveModelForRole(roleId: string, requestedModel: string | undefined, projectId: string | undefined): { model: string | undefined; overridden: boolean; reason?: string } {
+    const yamlModel = this.config?.roleOverrides?.[roleId]?.model;
+
     if (!projectId || !this.projectRegistry) {
-      return { model: requestedModel, overridden: false };
+      return { model: requestedModel ?? yamlModel, overridden: false };
     }
 
-    const { config } = this.projectRegistry.getModelConfig(projectId);
-    const allowedModels = config[roleId];
+    // Only roles the user explicitly configured for this project act as a
+    // whitelist; storage is sparse, so absence means "not chosen".
+    const { config, stored } = this.projectRegistry.getModelConfig(projectId);
+    const allowedModels = stored?.[roleId];
 
     if (!allowedModels || allowedModels.length === 0) {
-      return { model: requestedModel, overridden: false };
+      if (requestedModel) {
+        return { model: requestedModel, overridden: false };
+      }
+      if (yamlModel) {
+        return { model: yamlModel, overridden: false, reason: `Using per-role config model "${yamlModel}" for role "${roleId}"` };
+      }
+      const builtinDefault = config[roleId]?.[0];
+      if (builtinDefault) {
+        return { model: builtinDefault, overridden: false, reason: `Using built-in default model for role "${roleId}"` };
+      }
+      return { model: undefined, overridden: false };
     }
 
     const roleDefault = allowedModels[0];

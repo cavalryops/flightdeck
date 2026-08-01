@@ -36,6 +36,14 @@ export interface ServerConfig {
   }>;
   /** Structured cloud provider config (Bedrock, Vertex, Anthropic) */
   cloudProvider?: CloudProvider;
+  /**
+   * Task-size gate for delegation (from config YAML `delegation:`). Off by
+   * default so behaviour is unchanged unless a deployment opts in.
+   */
+  delegation?: {
+    requireTaskSize?: boolean;
+    maxDelegatedSize?: 'XS' | 'S' | 'M' | 'L' | 'XL';
+  };
   maxConcurrentAgents: number;
   dbPath: string;
 }

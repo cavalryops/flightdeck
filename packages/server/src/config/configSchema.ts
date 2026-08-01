@@ -123,6 +123,14 @@ const telegramSchema = z.object({
   rateLimitPerMinute: z.number().int().min(1).max(120).default(20),
 });
 
+// ── Delegation section (task-size gate) ────────────────────
+// Off by default: enabling it makes `size` a required field on CREATE_AGENT
+// and DELEGATE, which existing deployments' leads would not be emitting.
+const delegationSchema = z.object({
+  requireTaskSize: z.boolean().default(false),
+  maxDelegatedSize: z.enum(['XS', 'S', 'M', 'L', 'XL']).default('XS'),
+});
+
 // ── Oversight section (Trust Dial) ─────────────────────────
 // Preprocess migrates old tier names (detailed/standard/minimal) to new names
 const oversightSchema = z.preprocess(
@@ -201,6 +209,7 @@ export const flightdeckConfigSchema = z.preprocess(
     heartbeat: sectionDefault(heartbeatSchema),
     models: sectionDefault(modelsSchema),
     roles: z.preprocess((val) => val ?? {}, z.record(z.string(), roleOverrideSchema)),
+    delegation: sectionDefault(delegationSchema),
     provider: sectionDefault(providerSchema),
     oversight: sectionDefault(oversightSchema),
     telegram: sectionDefault(telegramSchema),

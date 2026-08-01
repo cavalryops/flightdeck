@@ -8,7 +8,7 @@ import { logger } from '../utils/logger.js';
 import { FLIGHTDECK_STATE_DIR } from '../config.js';
 import type { AppContext } from './context.js';
 import { spawnLimiter } from './context.js';
-import { KNOWN_MODEL_IDS, DEFAULT_MODEL_CONFIG, validateModelConfig, validateModelConfigShape } from '../projects/ModelConfigDefaults.js';
+import { KNOWN_MODEL_IDS, effectiveRoleDefaults, configuredModelIds, validateModelConfig, validateModelConfigShape } from '../projects/ModelConfigDefaults.js';
 import { getModelsByProvider } from '../adapters/ModelResolver.js';
 import { dagTasks, projectSessions, chatGroups, chatGroupMessages, chatGroupMembers, conversations, messages } from '../db/schema.js';
 import type { DagTask } from '../tasks/TaskDAG.js';
@@ -870,9 +870,12 @@ export function projectsRoutes(ctx: AppContext): Router {
   // List all known models and default config
   router.get('/models', (_req, res) => {
     const { providerManager } = ctx;
+    const overrides = ctx.config?.roleOverrides;
     res.json({
-      models: KNOWN_MODEL_IDS,
-      defaults: DEFAULT_MODEL_CONFIG,
+      // Include models pinned in the config file (e.g. a local endpoint's
+      // catalog) so the picker can offer what the crew actually runs.
+      models: [...KNOWN_MODEL_IDS, ...configuredModelIds(overrides)],
+      defaults: effectiveRoleDefaults(overrides),
       modelsByProvider: getModelsByProvider(),
       activeProvider: providerManager?.getActiveProviderId() ?? 'copilot',
     });
@@ -882,7 +885,12 @@ export function projectsRoutes(ctx: AppContext): Router {
     if (!projectRegistry) return res.status(500).json({ error: 'Projects not available' });
     const project = projectRegistry.get(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    res.json(projectRegistry.getModelConfig(req.params.id));
+    const overrides = ctx.config?.roleOverrides;
+    const { stored } = projectRegistry.getModelConfig(req.params.id);
+    const defaults = effectiveRoleDefaults(overrides);
+    // What actually applies: explicit per-project choices layered over the
+    // config-file-aware defaults, mirroring AgentManager.resolveModelForRole.
+    res.json({ config: { ...defaults, ...stored }, defaults, stored });
   });
 
   router.put('/projects/:id/model-config', (req, res) => {
@@ -894,7 +902,7 @@ export function projectsRoutes(ctx: AppContext): Router {
     const shapeError = validateModelConfigShape(config);
     if (shapeError) return res.status(400).json({ error: shapeError });
 
-    const unknownIds = validateModelConfig(config);
+    const unknownIds = validateModelConfig(config, configuredModelIds(ctx.config?.roleOverrides));
     if (unknownIds.length > 0) {
       return res.status(400).json({ error: `Unknown model IDs: ${unknownIds.join(', ')}` });
     }

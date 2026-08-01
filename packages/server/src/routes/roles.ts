@@ -8,8 +8,16 @@ export function rolesRoutes(ctx: AppContext): Router {
   const router = Router();
 
   // --- Roles ---
+  // Report the EFFECTIVE model, not the built-in default. A role pinned in
+  // config YAML (roles.<id>.model) is what actually spawns, so returning
+  // RoleRegistry's compiled-in value made the settings UI contradict reality —
+  // e.g. showing a local BYOK developer as running a cloud model.
   router.get('/roles', (_req, res) => {
-    res.json(roleRegistry.getAll());
+    const overrides = ctx.config?.roleOverrides ?? {};
+    res.json(roleRegistry.getAll().map((role) => {
+      const override = overrides[role.id];
+      return override?.model ? { ...role, model: override.model } : role;
+    }));
   });
 
   router.post('/roles', validateBody(registerRoleSchema), (req, res) => {

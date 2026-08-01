@@ -187,7 +187,7 @@ describe('AgentManager.resolveModelForRole (integration)', () => {
       getModelConfig(projectId: string) {
         const stored = configMap[projectId] ?? {};
         const merged = { ...DEFAULT_MODEL_CONFIG, ...stored };
-        return { config: merged, defaults: DEFAULT_MODEL_CONFIG };
+        return { config: merged, defaults: DEFAULT_MODEL_CONFIG, stored };
       },
     };
   }
@@ -197,10 +197,11 @@ describe('AgentManager.resolveModelForRole (integration)', () => {
     roleId: string,
     requestedModel: string | undefined,
     projectId: string | undefined,
+    roleOverrides?: Record<string, { model?: string }>,
   ) {
     // Call the real AgentManager method via prototype with a minimal context
     return AgentManager.prototype.resolveModelForRole.call(
-      { projectRegistry },
+      { projectRegistry, config: { roleOverrides } },
       roleId,
       requestedModel,
       projectId,
@@ -242,13 +243,94 @@ describe('AgentManager.resolveModelForRole (integration)', () => {
     expect(result.overridden).toBe(false);
   });
 
-  it('falls back to DEFAULT_MODEL_CONFIG for roles not in stored config', () => {
+  it('falls back to the built-in default when the project configured nothing', () => {
     const registry = createMockProjectRegistry({
-      'proj-1': {}, // empty stored config — defaults apply
+      'proj-1': {}, // nothing explicitly chosen for this project
     });
-    // developer defaults to ['claude-opus-4.6'] in DEFAULT_MODEL_CONFIG
+    // Built-in defaults rank BELOW config YAML, but a project that configures
+    // nothing must still get a usable model.
     const result = callResolve(registry, 'developer', undefined, 'proj-1');
     expect(result.model).toBe(DEFAULT_MODEL_CONFIG['developer']?.[0]);
     expect(result.overridden).toBe(false);
+  });
+
+  it('returns undefined only when there is no config, no YAML and no default', () => {
+    const registry = createMockProjectRegistry({ 'proj-1': {} });
+    const result = callResolve(registry, 'role-that-does-not-exist', undefined, 'proj-1');
+    expect(result.model).toBeUndefined();
+    expect(result.overridden).toBe(false);
+  });
+
+  describe('per-role YAML override (config file authority)', () => {
+    it('uses the YAML model when the project has no explicit entry for the role', () => {
+      const registry = createMockProjectRegistry({ 'proj-1': {} });
+      const result = callResolve(registry, 'architect', undefined, 'proj-1', {
+        architect: { model: 'claude-opus-5' },
+      });
+      expect(result.model).toBe('claude-opus-5');
+      expect(result.overridden).toBe(false);
+      expect(result.reason).toContain('claude-opus-5');
+    });
+
+    it('outranks the built-in default for that role', () => {
+      const registry = createMockProjectRegistry({ 'proj-1': {} });
+      const result = callResolve(registry, 'architect', undefined, 'proj-1', {
+        architect: { model: 'claude-opus-5' },
+      });
+      expect(result.model).not.toBe(DEFAULT_MODEL_CONFIG['architect']?.[0]);
+    });
+
+    it('yields to an explicit per-project whitelist', () => {
+      const registry = createMockProjectRegistry({
+        'proj-1': { architect: ['gpt-5.6-sol'] },
+      });
+      const result = callResolve(registry, 'architect', undefined, 'proj-1', {
+        architect: { model: 'claude-opus-5' },
+      });
+      expect(result.model).toBe('gpt-5.6-sol');
+    });
+
+    it('applies with no project scope at all', () => {
+      const result = callResolve(undefined, 'architect', undefined, undefined, {
+        architect: { model: 'claude-opus-5' },
+      });
+      expect(result.model).toBe('claude-opus-5');
+    });
+
+    it('does not mask an explicitly requested model', () => {
+      const registry = createMockProjectRegistry({ 'proj-1': {} });
+      const result = callResolve(registry, 'architect', 'gpt-5.6-terra', 'proj-1', {
+        architect: { model: 'claude-opus-5' },
+      });
+      expect(result.model).toBe('gpt-5.6-terra');
+      expect(result.overridden).toBe(false);
+    });
+
+    it('only affects the roles it names', () => {
+      const registry = createMockProjectRegistry({ 'proj-1': {} });
+      const overrides = { architect: { model: 'claude-opus-5' } };
+      // developer is absent from the YAML, so it keeps the built-in default
+      const result = callResolve(registry, 'developer', undefined, 'proj-1', overrides);
+      expect(result.model).toBe(DEFAULT_MODEL_CONFIG['developer']?.[0]);
+    });
+  });
+
+  describe('full precedence chain', () => {
+    const yaml = { architect: { model: 'claude-opus-5' } };
+
+    it('project whitelist > request > YAML > built-in default', () => {
+      const withConfig = createMockProjectRegistry({ 'proj-1': { architect: ['gpt-5.6-sol'] } });
+      const noConfig = createMockProjectRegistry({ 'proj-1': {} });
+
+      // 1. explicit project config wins over everything below it
+      expect(callResolve(withConfig, 'architect', 'claude-haiku-4.5', 'proj-1', yaml).model).toBe('gpt-5.6-sol');
+      // 2. request wins when the project defines no whitelist
+      expect(callResolve(noConfig, 'architect', 'claude-haiku-4.5', 'proj-1', yaml).model).toBe('claude-haiku-4.5');
+      // 3. YAML wins when nothing was requested
+      expect(callResolve(noConfig, 'architect', undefined, 'proj-1', yaml).model).toBe('claude-opus-5');
+      // 4. built-in default when the YAML is silent too
+      expect(callResolve(noConfig, 'architect', undefined, 'proj-1', {}).model)
+        .toBe(DEFAULT_MODEL_CONFIG['architect']?.[0]);
+    });
   });
 });

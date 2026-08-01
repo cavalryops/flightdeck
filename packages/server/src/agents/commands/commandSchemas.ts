@@ -68,6 +68,7 @@ export const createAgentSchema = z.object({
   dependsOn: z.array(z.string().max(MAX_ID_LENGTH)).max(20).optional().describe('Task IDs this depends on'),
   name: z.string().max(MAX_NAME_LENGTH).optional().describe('Custom agent name'),
   sessionId: z.string().max(MAX_ID_LENGTH).optional().describe('Session ID to resume'),
+  size: z.string().max(4).optional().describe('Task size: XS, S, M, L or XL'),
 });
 
 export const delegateSchema = z.object({
@@ -76,6 +77,7 @@ export const delegateSchema = z.object({
   context: z.string().max(MAX_CONTENT_LENGTH, `"context" too long (max ${MAX_CONTENT_LENGTH})`).optional().describe('Additional context'),
   dagTaskId: z.string().max(MAX_ID_LENGTH).optional().describe('DAG task ID to link'),
   dependsOn: z.array(z.string().max(MAX_ID_LENGTH)).max(20).optional().describe('Task IDs this depends on'),
+  size: z.string().max(4).optional().describe('Task size: XS, S, M, L or XL'),
 });
 
 export const terminateAgentSchema = z.object({

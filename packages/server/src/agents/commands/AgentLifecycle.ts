@@ -19,6 +19,7 @@ import {
   terminateAgentSchema,
   cancelDelegationSchema,
 } from './commandSchemas.js';
+import { checkTaskSize } from './taskSizing.js';
 import { shortAgentId } from '@flightdeck/shared';
 
 // ── Regex patterns ────────────────────────────────────────────────────
@@ -72,6 +73,18 @@ function handleCreateAgent(ctx: CommandHandlerContext, agent: Agent, data: strin
     if (!role) {
       agent.sendMessage(`[System] Unknown role: ${req.role}. Available: ${ctx.roleRegistry.getAll().map(r => r.id).join(', ')}`);
       return;
+    }
+
+    // Gate on task size before spawning. Checked only when work is actually
+    // being assigned — creating an idle agent to hold a slot carries no task
+    // and nothing to size.
+    if (req.task) {
+      const sizeCheck = checkTaskSize(req.size, ctx.config?.delegation, 'CREATE_AGENT');
+      if (!sizeCheck.ok) {
+        logger.warn({ module: 'delegation', msg: 'CREATE_AGENT rejected — task size gate', command: 'CREATE_AGENT', size: req.size });
+        agent.sendMessage(sizeCheck.message!);
+        return;
+      }
     }
 
     // Soft reminder: let the lead know if idle agents of the same role exist
@@ -216,6 +229,13 @@ function handleDelegate(ctx: CommandHandlerContext, agent: Agent, data: string):
 
     if (!child) {
       agent.sendMessage(`[System] Agent not found: ${req.to}. Use CREATE_AGENT to create a new agent first, or use QUERY_CREW to see available agents.`);
+      return;
+    }
+
+    const sizeCheck = checkTaskSize(req.size, ctx.config?.delegation, 'DELEGATE');
+    if (!sizeCheck.ok) {
+      logger.warn({ module: 'delegation', msg: 'DELEGATE rejected — task size gate', command: 'DELEGATE', size: req.size });
+      agent.sendMessage(sizeCheck.message!);
       return;
     }
 

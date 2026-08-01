@@ -110,10 +110,13 @@ describe('deriveArgs', () => {
 
   it('handles schemas with many fields (createAgentSchema)', () => {
     const args = deriveArgs(createAgentSchema);
-    expect(args.length).toBe(9);
+    expect(args.length).toBe(10);
     const role = args.find(a => a.name === 'role')!;
     expect(role.required).toBe(true);
     expect(role.description).toBe('Role ID to assign');
+    // `size` feeds the delegation task-size gate; it must reach command help
+    // or the lead has no way to learn the field exists.
+    expect(args.find(a => a.name === 'size')?.required).toBe(false);
   });
 
   it('falls back to field name when no description', () => {

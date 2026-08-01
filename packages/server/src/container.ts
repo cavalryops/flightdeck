@@ -169,6 +169,8 @@ export async function createContainer(opts: ContainerConfig): Promise<ServiceCon
   // Bridge YAML per-role overrides → ServerConfig so agents can carry their own
   // provider/env/args (mixed backends within a single crew).
   updateConfig({ roleOverrides: configStore.current.roles as ServerConfig['roleOverrides'] });
+  // Bridge the task-size gate so the delegation commands can enforce it.
+  updateConfig({ delegation: configStore.current.delegation as ServerConfig['delegation'] });
   // Re-read config so all services see restored values
   const effectiveConfig = getConfig();
 

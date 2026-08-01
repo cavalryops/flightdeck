@@ -86,12 +86,48 @@ export const DEFAULT_MODEL_CONFIG: ProjectModelConfig = {
   lead: ['claude-opus-4.8'],
 };
 
-/** Validate that all model IDs in a config are known. Returns unknown IDs. */
-export function validateModelConfig(config: ProjectModelConfig): string[] {
+/**
+ * Overlay per-role config-file pins onto the built-in defaults.
+ *
+ * DEFAULT_MODEL_CONFIG is compiled in and cannot know about `roles.<id>.model`
+ * from the YAML, nor about models served by a custom/local endpoint. Surfaces
+ * that display "the default for this role" must use this, or the UI reports a
+ * model the agent will never actually run.
+ */
+export function effectiveRoleDefaults(
+  roleOverrides?: Record<string, { model?: string } | undefined>,
+): ProjectModelConfig {
+  const out: ProjectModelConfig = { ...DEFAULT_MODEL_CONFIG };
+  for (const [roleId, override] of Object.entries(roleOverrides ?? {})) {
+    if (override?.model) out[roleId] = [override.model];
+  }
+  return out;
+}
+
+/** Model IDs pinned by the config file that the built-in catalog doesn't know. */
+export function configuredModelIds(
+  roleOverrides?: Record<string, { model?: string } | undefined>,
+): string[] {
+  const ids = new Set<string>();
+  for (const override of Object.values(roleOverrides ?? {})) {
+    if (override?.model && !knownSet.has(override.model)) ids.add(override.model);
+  }
+  return [...ids];
+}
+
+/**
+ * Validate that all model IDs in a config are known. Returns unknown IDs.
+ *
+ * `extraKnown` admits models that only exist at runtime — e.g. a local
+ * inference server's catalog pinned via roles.<id>.model. Without it, a config
+ * the UI itself rendered as the default would be rejected on save.
+ */
+export function validateModelConfig(config: ProjectModelConfig, extraKnown: readonly string[] = []): string[] {
+  const allowed = extraKnown.length ? new Set([...knownSet, ...extraKnown]) : knownSet;
   const unknown: string[] = [];
   for (const models of Object.values(config)) {
     for (const id of models) {
-      if (!knownSet.has(id)) {
+      if (!allowed.has(id)) {
         unknown.push(id);
       }
     }

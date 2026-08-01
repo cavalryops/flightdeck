@@ -17,7 +17,7 @@ export interface ProjectBriefing {
 
 export class ProjectRegistry {
   /** In-memory cache: projectId → merged model config. Invalidated on setModelConfig(). */
-  private modelConfigCache = new Map<string, { config: ProjectModelConfig; defaults: ProjectModelConfig }>();
+  private modelConfigCache = new Map<string, { config: ProjectModelConfig; defaults: ProjectModelConfig; stored: ProjectModelConfig }>();
 
   constructor(private db: Database) {}
 
@@ -261,8 +261,15 @@ export class ProjectRegistry {
    * Get the model config for a project.
    * Returns the stored config merged over defaults — stored values take precedence.
    * Results are cached in-memory; cache is invalidated on setModelConfig().
+   *
+   * `stored` is returned separately and deliberately: it holds ONLY the roles a
+   * user explicitly configured for this project (storage is sparse). Callers
+   * that need to know whether a role was actually chosen — rather than merely
+   * inheriting a built-in default — must read `stored`, not `config`. Treating
+   * the merged view as user intent makes DEFAULT_MODEL_CONFIG outrank
+   * per-role YAML overrides, which silently ignores config\flightdeck.yaml.
    */
-  getModelConfig(projectId: string): { config: ProjectModelConfig; defaults: ProjectModelConfig } {
+  getModelConfig(projectId: string): { config: ProjectModelConfig; defaults: ProjectModelConfig; stored: ProjectModelConfig } {
     const cached = this.modelConfigCache.get(projectId);
     if (cached) return cached;
 
@@ -276,7 +283,7 @@ export class ProjectRegistry {
     }
     // Merge: stored overrides defaults per-role
     const merged: ProjectModelConfig = { ...DEFAULT_MODEL_CONFIG, ...stored };
-    const result = { config: merged, defaults: DEFAULT_MODEL_CONFIG };
+    const result = { config: merged, defaults: DEFAULT_MODEL_CONFIG, stored };
     this.modelConfigCache.set(projectId, result);
     return result;
   }
