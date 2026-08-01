@@ -93,6 +93,44 @@ describe('NewProjectModal', () => {
     });
   });
 
+  it('prefills the working directory from the server cwd and sends it', async () => {
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url === '/roles') return Promise.resolve([]);
+      if (url === '/browse') return Promise.resolve({ current: 'C:\\Code\\rankscope' });
+      return Promise.resolve({ id: 'lead-1', projectId: 'proj-1' });
+    });
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('/path/to/project')).toHaveValue('C:\\Code\\rankscope');
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('My Feature'), { target: { value: 'Test Project' } });
+      fireEvent.click(screen.getByText('Create Project'));
+    });
+    await waitFor(() => {
+      const call = mockApiFetch.mock.calls.find((c: unknown[]) => c[0] === '/lead/start');
+      expect(call).toBeDefined();
+      expect(JSON.parse((call![1] as { body: string }).body).cwd).toBe('C:\\Code\\rankscope');
+    });
+  });
+
+  it('does not overwrite a working directory the user already typed', async () => {
+    let resolveBrowse: (v: { current: string }) => void = () => {};
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url === '/roles') return Promise.resolve([]);
+      if (url === '/browse') return new Promise((resolve) => { resolveBrowse = resolve as typeof resolveBrowse; });
+      return Promise.resolve({ id: 'lead-1', projectId: 'proj-1' });
+    });
+    renderModal();
+    const cwdInput = screen.getByPlaceholderText('/path/to/project');
+    await act(async () => {
+      fireEvent.change(cwdInput, { target: { value: 'D:\\mine' } });
+    });
+    // Server response lands after the user has typed — must not clobber it.
+    await act(async () => { resolveBrowse({ current: 'C:\\server\\cwd' }); });
+    expect(cwdInput).toHaveValue('D:\\mine');
+  });
+
   it('navigates to project on success', async () => {
     renderModal();
     await act(async () => {

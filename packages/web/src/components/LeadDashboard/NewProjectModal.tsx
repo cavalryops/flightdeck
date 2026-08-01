@@ -37,6 +37,16 @@ export function NewProjectModal({ onClose }: NewProjectModalProps) {
     }).catch(() => { /* role fetch failure is non-critical */ });
   }, []);
 
+  // Default the working directory to the server's own cwd, which /browse
+  // reports as `current`. An omitted cwd is resolved server-side to
+  // process.cwd() anyway (routes/lead.ts), so prefilling makes the effective
+  // target visible and editable instead of leaving it implicit and blank.
+  useEffect(() => {
+    apiFetch<{ current?: string }>('/browse').then((data) => {
+      if (data?.current) setNewProjectCwd((prev) => prev || data.current!);
+    }).catch(() => { /* best-effort — a blank cwd still falls back server-side */ });
+  }, []);
+
   const handleCreate = useCallback(async () => {
     if (!newProjectName.trim()) { setNewProjectNameTouched(true); return; }
     setStarting(true);
