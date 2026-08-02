@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { Send, AlertCircle, Loader2, ChevronRight } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useMessageStore, EMPTY_MESSAGES } from '../../stores/messageStore';
@@ -8,7 +8,7 @@ import { AgentIdBadge } from '../../utils/markdown';
 import { Markdown } from '../ui/Markdown';
 import { splitToolOutput, CollapsibleToolOutput } from '../Shared/toolOutput';
 import { formatRelativeTime } from '../../utils/formatRelativeTime';
-import type { AcpTextChunk, AgentInfo } from '../../types';
+import type { AcpTextChunk } from '../../types';
 
 /** Message from the API endpoint (server shape) */
 interface ApiMessage {
@@ -167,13 +167,14 @@ export function AgentChatPanel({ agentId, readOnly, maxHeight, compact, autoFocu
     }
   };
 
-  // Filter out empty/whitespace-only messages and outgoing DM notifications
-  const visibleMessages = messages.filter((m) => {
+  // Filter out empty/whitespace-only messages and outgoing DM notifications.
+  // Memoised so typing in the input does not re-scan the whole transcript.
+  const visibleMessages = useMemo(() => messages.filter((m) => {
     const text = typeof m.text === 'string' ? m.text : '';
     if (!text.trim()) return false;
     if (text.startsWith('📤')) return false;
     return true;
-  });
+  }), [messages]);
 
   return (
     <div className="flex flex-col h-full" style={maxHeight ? { maxHeight } : undefined}>
@@ -204,7 +205,7 @@ export function AgentChatPanel({ agentId, readOnly, maxHeight, compact, autoFocu
         )}
 
         {visibleMessages.map((msg, i) => (
-          <ChatBubble key={i} msg={msg} agent={agent} compact={compact} />
+          <ChatBubble key={i} msg={msg} agentId={agent?.id} compact={compact} />
         ))}
 
         <div ref={messagesEndRef} />
@@ -258,8 +259,18 @@ export function AgentChatPanel({ agentId, readOnly, maxHeight, compact, autoFocu
   );
 }
 
-/** Individual chat message bubble */
-function ChatBubble({ msg, agent, compact }: { msg: AcpTextChunk; agent?: AgentInfo; compact?: boolean }) {
+/**
+ * Individual chat message bubble.
+ *
+ * Memoised, and takes `agentId` rather than the whole agent object, because
+ * this component re-rendered once per message on every keystroke: the input's
+ * `inputText` state lives in AgentChatPanel, so typing re-rendered the entire
+ * un-virtualised list, each row re-running tool-output splitting and markdown
+ * parsing. Passing a string instead of the agent object also keeps the memo
+ * effective when unrelated agent fields (status, token counts) change over the
+ * WebSocket.
+ */
+const ChatBubble = memo(function ChatBubble({ msg, agentId, compact }: { msg: AcpTextChunk; agentId?: string; compact?: boolean }) {
   const sender = msg.sender ?? 'agent';
   const style = getSenderStyle(sender);
   const isUser = sender === 'user';
@@ -291,7 +302,7 @@ function ChatBubble({ msg, agent, compact }: { msg: AcpTextChunk; agent?: AgentI
 
   // Tool call messages render via dedicated component (hooks must be unconditional)
   if (sender === 'tool') {
-    return <ToolMessageBubble msg={msg} agentId={agent?.id ?? ''} />;
+    return <ToolMessageBubble msg={msg} agentId={agentId ?? ''} />;
   }
 
   const text = typeof msg.text === 'string' ? msg.text : '';
@@ -300,8 +311,8 @@ function ChatBubble({ msg, agent, compact }: { msg: AcpTextChunk; agent?: AgentI
     <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
       {/* Sender label + timestamp */}
       <div className="flex items-center gap-1.5 mb-0.5">
-        {!isUser && sender === 'agent' && agent && (
-          <AgentIdBadge id={agent.id} className="text-[10px]" />
+        {!isUser && sender === 'agent' && agentId && (
+          <AgentIdBadge id={agentId} className="text-[10px]" />
         )}
         <span className={`text-[10px] font-medium ${style.text}`}>
           {sender === 'external' && msg.fromRole ? msg.fromRole : style.label}
@@ -326,7 +337,7 @@ function ChatBubble({ msg, agent, compact }: { msg: AcpTextChunk; agent?: AgentI
       </div>
     </div>
   );
-}
+});
 
 /** Tool call message bubble — extracted so hooks are called unconditionally */
 function ToolMessageBubble({ msg, agentId }: { msg: AcpTextChunk; agentId: string }) {
