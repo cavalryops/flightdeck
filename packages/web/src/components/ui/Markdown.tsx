@@ -54,10 +54,29 @@ function MentionAwareChildren({
   );
 }
 
+// ── Size guard ───────────────────────────────────────────────
+
+/**
+ * Above this many characters, skip markdown entirely and render plain text.
+ *
+ * react-markdown parses on the main thread and produces one React element per
+ * node, so cost grows sharply with input. Measured on a real transcript:
+ * 78 KB took 263 ms, 169 KB took 1.2 s, and 286 KB took 2.1 s — each blocking
+ * every interaction, and repeated on re-render. A degenerate agent produced
+ * several such messages in one conversation, which made the chat unusable and
+ * left sends hanging for seconds.
+ *
+ * Content this large is a transcript or a dump, not something whose formatting
+ * matters, so plain text is the right trade. A single <pre> text node costs the
+ * DOM almost nothing next to thousands of React elements.
+ */
+export const MAX_MARKDOWN_CHARS = 32_000;
+
 // ── Component ────────────────────────────────────────────────
 
 export function Markdown({ text, mentionAgents, onMentionClick, className, monospace }: MarkdownProps) {
   const hasMentions = mentionAgents && mentionAgents.length > 0;
+  const oversized = typeof text === 'string' && text.length > MAX_MARKDOWN_CHARS;
 
   const components = useMemo(() => {
     type HtmlProps<T extends keyof React.JSX.IntrinsicElements> = React.JSX.IntrinsicElements[T] & ExtraProps;
@@ -163,13 +182,24 @@ export function Markdown({ text, mentionAgents, onMentionClick, className, monos
 
   return (
     <div className={`markdown-content text-xs text-th-text-alt leading-relaxed ${monospace ? 'font-mono' : ''} ${className ?? ''}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
-        components={components}
-      >
-        {text}
-      </ReactMarkdown>
+      {oversized ? (
+        <>
+          <div className="text-[10px] text-th-text-muted mb-1 italic">
+            Plain text — {(text.length / 1024).toFixed(0)} KB exceeds the markdown rendering budget
+          </div>
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs text-th-text-alt max-h-[60vh] overflow-y-auto">
+            {text}
+          </pre>
+        </>
+      ) : (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHighlight]}
+          components={components}
+        >
+          {text}
+        </ReactMarkdown>
+      )}
     </div>
   );
 }

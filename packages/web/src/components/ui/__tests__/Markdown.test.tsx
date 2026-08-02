@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { Markdown } from '../Markdown';
+import { Markdown, MAX_MARKDOWN_CHARS } from '../Markdown';
 
 vi.mock('../../../utils/markdown', () => ({
   MentionText: ({ text }: { text: string }) => <span data-testid="mention-text">{text}</span>,
@@ -172,5 +172,40 @@ describe('Markdown', () => {
     expect(container.querySelector('blockquote')).toBeInTheDocument();
     expect(container.querySelector('pre')).toBeInTheDocument();
     expect(container.querySelector('table')).toBeInTheDocument();
+  });
+
+  describe('oversized content guard', () => {
+    // react-markdown parses on the main thread and emits one React element per
+    // node. A 286 KB transcript measured 2.1s to parse+highlight, blocking every
+    // interaction and repeating on re-render. Past the budget we render plain
+    // text instead: formatting is irrelevant for a dump that size.
+    const huge = 'x '.repeat(MAX_MARKDOWN_CHARS);
+
+    it('renders oversized text as plain text, not markdown', () => {
+      const { container } = render(<Markdown text={`# heading\n${huge}`} />);
+      expect(container.querySelector('h1')).toBeNull();
+      expect(container.querySelector('pre')).not.toBeNull();
+    });
+
+    it('tells the reader why formatting is missing', () => {
+      render(<Markdown text={huge} />);
+      expect(screen.getByText(/exceeds the markdown rendering budget/)).toBeInTheDocument();
+    });
+
+    it('preserves the full content', () => {
+      const { container } = render(<Markdown text={huge} />);
+      expect(container.querySelector('pre')?.textContent?.length).toBe(huge.length);
+    });
+
+    it('still renders markdown just under the budget', () => {
+      const justUnder = '# heading\n' + 'y'.repeat(MAX_MARKDOWN_CHARS - 200);
+      const { container } = render(<Markdown text={justUnder} />);
+      expect(container.querySelector('h1')).toHaveTextContent('heading');
+    });
+
+    it('handles an empty string without tripping the guard', () => {
+      const { container } = render(<Markdown text="" />);
+      expect(container.querySelector('pre')).toBeNull();
+    });
   });
 });
