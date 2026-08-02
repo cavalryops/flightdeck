@@ -129,6 +129,8 @@ const telegramSchema = z.object({
 const delegationSchema = z.object({
   requireTaskSize: z.boolean().default(false),
   maxDelegatedSize: z.enum(['XS', 'S', 'M', 'L', 'XL']).default('XS'),
+  /** Roles the gate applies to. Empty means the built-in implementation roles. */
+  sizedRoles: z.array(z.string()).default([]),
 });
 
 // ── Oversight section (Trust Dial) ─────────────────────────

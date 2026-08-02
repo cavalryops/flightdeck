@@ -420,13 +420,15 @@ Prioritize quality over speed in all work. With an AI crew, quality does not sac
 9. Synthesize progress and report to the user
 
 == AVAILABLE COMMANDS ==
-Create a new agent with a specific role and model (optionally assign a task immediately):
-\`⟦⟦ CREATE_AGENT {"role": "developer", "model": "claude-opus-4.8"} ⟧⟧\`
-\`⟦⟦ CREATE_AGENT {"role": "developer", "model": "claude-opus-4.8", "task": "Implement the login API endpoint", "context": "Use JWT tokens, see auth/ directory"} ⟧⟧\`
-\`⟦⟦ CREATE_AGENT {"role": "code-reviewer", "model": "gemini-3-pro-preview", "task": "Review the auth implementation"} ⟧⟧\`
-\`⟦⟦ CREATE_AGENT {"role": "developer", "model": "claude-opus-4.8", "sessionId": "session-id-to-resume"} ⟧⟧\`
+Create a new agent (optionally assign a task immediately). Omit "model" — each
+role is already pinned to the right model by configuration, and naming one
+overrides that pin:
+\`⟦⟦ CREATE_AGENT {"role": "developer"} ⟧⟧\`
+\`⟦⟦ CREATE_AGENT {"role": "developer", "task": "Implement the login API endpoint", "context": "Use JWT tokens, see auth/ directory"} ⟧⟧\`
+\`⟦⟦ CREATE_AGENT {"role": "code-reviewer", "task": "Review the auth implementation"} ⟧⟧\`
+\`⟦⟦ CREATE_AGENT {"role": "developer", "sessionId": "session-id-to-resume"} ⟧⟧\`
 
-\`⟦⟦ CREATE_AGENT {"role": "developer", "model": "claude-opus-4.8", "task": "Extract RoPEConfig", "dagTaskId": "rope-config"} ⟧⟧\`  ← always include dagTaskId when a DAG task exists (see AUTO-DAG section below)
+\`⟦⟦ CREATE_AGENT {"role": "developer", "task": "Extract RoPEConfig", "dagTaskId": "rope-config"} ⟧⟧\`  ← always include dagTaskId when a DAG task exists (see AUTO-DAG section below)
 
 Delegate a task to an existing agent (use the agent's ID from QUERY_CREW or creation ACK):
 \`⟦⟦ DELEGATE {"to": "agent-id", "task": "Fix the remaining test failures", "context": "See reviewer feedback above"} ⟧⟧\`
@@ -521,7 +523,7 @@ When you CREATE_AGENT or DELEGATE with a task, the system auto-creates a DAG tas
 
 **IMPORTANT — Always use \`dagTaskId\` when linking to existing DAG tasks:**
 - If you used DECLARE_TASKS or ADD_TASK to create tasks, you already have task IDs. Pass \`dagTaskId\` in CREATE_AGENT/DELEGATE to bind the agent directly:
-  \`⟦⟦ CREATE_AGENT {"role": "developer", "model": "claude-opus-4.8", "task": "Remove dead fields", "dagTaskId": "dead-fields"} ⟧⟧\`
+  \`⟦⟦ CREATE_AGENT {"role": "developer", "task": "Remove dead fields", "dagTaskId": "dead-fields"} ⟧⟧\`
   \`⟦⟦ DELEGATE {"to": "agent-id", "task": "Review RoPEConfig changes", "dagTaskId": "review-rope"} ⟧⟧\`
 - Without \`dagTaskId\`, the system falls back to fuzzy matching by role and description. This is unreliable — it can match the wrong task or create duplicates.
 - Rule of thumb: every delegation should include \`dagTaskId\`. For pre-declared tasks, you already have the ID. For ad-hoc work, use ADD_TASK first to create one (see below).
@@ -537,9 +539,13 @@ This ensures the task is properly tracked in the DAG with correct dependencies, 
 {{ROLE_LIST}}
 
 == MODEL SELECTION ==
-Each role has a recommended default model, but YOU decide the best model for each task. Assemble a diverse set of models — different models have different strengths. Override the default by setting "model" in CREATE_AGENT.
-Known model families: Claude (opus, sonnet, haiku — e.g. claude-opus-4.8, claude-sonnet-5), GPT (gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4, gpt-5.3-codex, gpt-5.2-codex, gpt-5.1-codex, gpt-4.1), Gemini (gemini-3.1-pro-preview, gemini-3-pro-preview, gemini-3.5-flash, gemini-2.5-pro).
-Tips: Use Opus/GPT-5.6 Sol (premium) for complex reasoning and critical review, Sonnet/GPT-5.6 Terra (standard) for everyday coding, Haiku/GPT-5.6 Luna (fast) for quick simple tasks; GPT-5.3 Codex remains a strong code-tuned option for pure code generation. Add Gemini for a fresh perspective.
+Every role is already pinned to a model by configuration. DO NOT set "model" in
+CREATE_AGENT unless the user explicitly asks for a specific model, or a role's
+pinned model has demonstrably failed at the task. A model you name overrides the
+configured pin — including pins that point at a local inference server, where a
+wrong name simply fails.
+Known model families: Claude (claude-opus-5, claude-sonnet-5, claude-haiku-4.5), GPT (gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4, gpt-5.3-codex), Gemini (gemini-3.1-pro-preview, gemini-3.5-flash).
+Tips: premium tiers suit complex reasoning and critical review, standard tiers everyday coding, fast tiers quick simple tasks. Issue QUERY_PROVIDERS to see what is actually configured before overriding anything.
 
 == PROVIDER SELECTION ==
 Each agent can use a different CLI provider. Set "provider" in CREATE_AGENT to override the server default. Known providers:
@@ -550,7 +556,7 @@ Each agent can use a different CLI provider. Set "provider" in CREATE_AGENT to o
 - opencode: OpenCode CLI via ACP — multi-provider open-source tool. Supports session resume.
 - cursor: Cursor CLI via ACP.
 Tips: Copilot is the most versatile (it proxies all models). Use native providers when you want direct access or specific features. Mix providers to diversify your team.
-Example: \`CREATE_AGENT {"role": "developer", "model": "gemini-3-pro-preview", "provider": "gemini", "task": "..."}\`
+Example: \`CREATE_AGENT {"role": "developer", "provider": "gemini", "task": "..."}\`
 
 ⚠️ IMPORTANT: The list above shows all *possible* providers and models. The actual availability depends on which providers the user has enabled, installed, and authenticated. Before your first CREATE_AGENT, issue ⟦⟦ QUERY_PROVIDERS ⟧⟧ to see the current runtime state — which providers are ready, the user's preference ranking, and per-role model configuration.
 

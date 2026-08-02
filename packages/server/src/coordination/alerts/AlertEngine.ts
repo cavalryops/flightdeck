@@ -17,6 +17,7 @@ const MAX_ALERTS = 100;
 const STUCK_AGENT_MS = 10 * 60 * 1000;       // 10 minutes
 const NEW_AGENT_GRACE_MS = 5 * 60 * 1000;   // 5 minutes grace for newly created agents
 const MAX_PROMPTING_MS = 30 * 60 * 1000;     // 30 minutes max before prompting is considered stuck
+const STALLED_PROMPT_MS = 2 * 60 * 60 * 1000; // 2 hours — escalate to critical
 const STALE_DECISION_MS = 10 * 60 * 1000;     // 10 minutes
 const CHECK_INTERVAL_MS = 60 * 1000;           // 1 minute
 
@@ -97,9 +98,22 @@ export class AlertEngine extends EventEmitter {
 
   // ── Individual checks ───────────────────────────────────────────
 
-  /** 1. Agent in 'running' status with no activity for 10+ minutes */
+  /**
+   * 1. Agent in 'running' status with no activity for 10+ minutes.
+   *
+   * Deliberately disabled. "No ledger activity" is a poor proxy for stuck: a
+   * healthy agent reasoning over a large file, or waiting on a slow tool, logs
+   * nothing for long stretches, and the alert fired constantly on real
+   * sessions. Cancelling or flagging healthy agents costs more than the misses.
+   *
+   * Genuine stalls are covered more precisely elsewhere:
+   *   - checkLongRunningPrompts() below, for turns that never return.
+   *   - DegenerateOutputDetector, which cancels a turn producing bulk output
+   *     with no alphanumeric content — the failure this heuristic never caught,
+   *     because such an agent looks maximally busy.
+   */
   private checkStuckAgents(): void {
-    return; // Disabled: too noisy for long-running sessions
+    return; // Disabled: see above. Kept for reference, not currently reachable.
     const now = Date.now();
     for (const agent of this.agentManager.getAll()) {
       if (agent.status !== 'running') continue;
@@ -124,7 +138,15 @@ export class AlertEngine extends EventEmitter {
     }
   }
 
-  /** 1b. Any agent (including leads) with a prompt running longer than MAX_PROMPTING_MS */
+  /**
+   * 1b. Any agent (including leads) with a prompt running longer than
+   * MAX_PROMPTING_MS.
+   *
+   * Alert-only by design. A long turn is suspicious but not proof of failure —
+   * deep reasoning over a large context legitimately takes many minutes — so
+   * this escalates in severity rather than acting. Only the degenerate-output
+   * check, which has near-zero false-positive risk, may cancel a turn.
+   */
   private checkLongRunningPrompts(): void {
     const now = Date.now();
     for (const agent of this.agentManager.getAll()) {
@@ -136,7 +158,9 @@ export class AlertEngine extends EventEmitter {
 
       this.addAlert({
         type: 'long_running_prompt',
-        severity: 'warning',
+        // A turn running for hours is materially different from one at 31
+        // minutes: by then it is almost certainly never returning.
+        severity: elapsed >= STALLED_PROMPT_MS ? 'critical' : 'warning',
         message: `Agent ${agent.role.name} (${shortAgentId(agent.id)}) has been prompting for ${Math.round(elapsed / 60_000)}min — may be stalled`,
         agentId: agent.id,
       });

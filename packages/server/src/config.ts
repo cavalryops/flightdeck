@@ -43,6 +43,7 @@ export interface ServerConfig {
   delegation?: {
     requireTaskSize?: boolean;
     maxDelegatedSize?: 'XS' | 'S' | 'M' | 'L' | 'XL';
+    roles?: string[];
   };
   maxConcurrentAgents: number;
   dbPath: string;

@@ -79,7 +79,7 @@ function handleCreateAgent(ctx: CommandHandlerContext, agent: Agent, data: strin
     // being assigned — creating an idle agent to hold a slot carries no task
     // and nothing to size.
     if (req.task) {
-      const sizeCheck = checkTaskSize(req.size, ctx.config?.delegation, 'CREATE_AGENT');
+      const sizeCheck = checkTaskSize(req.size, ctx.config?.delegation, 'CREATE_AGENT', role.id);
       if (!sizeCheck.ok) {
         logger.warn({ module: 'delegation', msg: 'CREATE_AGENT rejected — task size gate', command: 'CREATE_AGENT', size: req.size });
         agent.sendMessage(sizeCheck.message!);
@@ -232,7 +232,7 @@ function handleDelegate(ctx: CommandHandlerContext, agent: Agent, data: string):
       return;
     }
 
-    const sizeCheck = checkTaskSize(req.size, ctx.config?.delegation, 'DELEGATE');
+    const sizeCheck = checkTaskSize(req.size, ctx.config?.delegation, 'DELEGATE', child.role.id);
     if (!sizeCheck.ok) {
       logger.warn({ module: 'delegation', msg: 'DELEGATE rejected — task size gate', command: 'DELEGATE', size: req.size });
       agent.sendMessage(sizeCheck.message!);

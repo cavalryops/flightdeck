@@ -24,6 +24,25 @@ export interface TaskSizePolicy {
   requireTaskSize?: boolean;
   /** Largest size that may be delegated as-is. Defaults to XS. */
   maxDelegatedSize?: TaskSize;
+  /**
+   * Roles the gate applies to. Defaults to implementation roles only.
+   *
+   * The gate exists to stop an agent being handed more building work than it
+   * can hold in context. Reviews, research and status reporting are bounded by
+   * the artefact they examine rather than by how the request was phrased, and
+   * forcing an XS label onto "review this diff" adds ceremony without
+   * protecting anything.
+   */
+  roles?: string[];
+}
+
+/** Roles whose work is bounded by the task description rather than by an existing artefact. */
+export const DEFAULT_SIZED_ROLES = ['developer', 'generalist'];
+
+/** Whether the size gate governs this role at all. */
+export function gateAppliesToRole(roleId: string, policy: TaskSizePolicy | undefined): boolean {
+  if (!policy?.requireTaskSize) return false;
+  return (policy.roles ?? DEFAULT_SIZED_ROLES).includes(roleId);
 }
 
 export interface SizeCheckResult {
@@ -44,10 +63,11 @@ export function checkTaskSize(
   declared: string | undefined,
   policy: TaskSizePolicy | undefined,
   command: string,
+  roleId: string,
 ): SizeCheckResult {
-  if (!policy?.requireTaskSize) return { ok: true };
+  if (!gateAppliesToRole(roleId, policy)) return { ok: true };
 
-  const max = policy.maxDelegatedSize ?? 'XS';
+  const max = policy!.maxDelegatedSize ?? 'XS';
 
   if (!declared) {
     return {

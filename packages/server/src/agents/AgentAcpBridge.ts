@@ -13,6 +13,7 @@ import type { ServerConfig } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { runWithAgentContext } from '../middleware/requestContext.js';
 import { agentFlagForRole } from './agentFiles.js';
+import { DegenerateOutputDetector } from './degenerateOutput.js';
 import type { Agent } from './Agent.js';
 import type { ModelSubstitutedInfo } from './AgentEvents.js';
 
@@ -241,6 +242,7 @@ export async function startAcp(agent: Agent, config: ServerConfig, initialPrompt
 export function wireAcpEvents(agent: Agent, conn: AgentAdapter): void {
   const withCtx = <T>(fn: () => T): T =>
     runWithAgentContext(agent.id, agent.role.name, agent.projectId, fn);
+  const degenerate = new DegenerateOutputDetector();
 
   conn.on('text', (text: string) => withCtx(() => {
     if (agent._isTerminated || agent.isResuming) return;
@@ -249,6 +251,25 @@ export function wireAcpEvents(agent: Agent, conn: AgentAdapter): void {
       agent.messages = agent.messages.slice(-agent._maxMessages);
     }
     agent._notifyData(text);
+
+    // Cut off a model that is streaming without producing anything. Left
+    // unchecked this never ends on its own: the turn stays open, so queued
+    // messages are never delivered and the junk re-enters the agent's context.
+    // Cancelling the turn preserves the session, and a relapse is cut off just
+    // as quickly, so the wasted spend stays bounded either way.
+    if (degenerate.push(text)) {
+      logger.error({
+        module: 'agent-bridge',
+        msg: `Degenerate output detected — cancelling turn (${degenerate.describe()})`,
+        role: agent.role?.id,
+      });
+      conn.appendSystemNote(
+        `[System] Your last response was cancelled: it produced ${degenerate.describe()}, `
+        + `which indicates a repetition loop rather than real work. Do not retry the same response. `
+        + `Send a short plain-text status instead, or hand the task to another agent.`,
+      );
+      conn.cancel().catch(() => { /* best-effort — the turn is already lost */ });
+    }
   }));
 
   conn.on('content', (content: any) => withCtx(() => {
@@ -346,6 +367,7 @@ export function wireAcpEvents(agent: Agent, conn: AgentAdapter): void {
 
   conn.on('prompt_complete', (_stopReason: string) => withCtx(() => {
     if (agent._isTerminated) return;
+    degenerate.reset();
 
     // Flush buffered system notes as a single queued message
     const notes = conn.flushSystemNotes();
@@ -383,6 +405,7 @@ export function wireAcpEvents(agent: Agent, conn: AgentAdapter): void {
 
   conn.on('response_start', () => withCtx(() => {
     if (agent._isTerminated) return;
+    degenerate.reset();
     agent._notifyResponseStart();
   }));
 }

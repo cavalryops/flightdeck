@@ -170,7 +170,19 @@ export async function createContainer(opts: ContainerConfig): Promise<ServiceCon
   // provider/env/args (mixed backends within a single crew).
   updateConfig({ roleOverrides: configStore.current.roles as ServerConfig['roleOverrides'] });
   // Bridge the task-size gate so the delegation commands can enforce it.
-  updateConfig({ delegation: configStore.current.delegation as ServerConfig['delegation'] });
+  // `sizedRoles` is renamed to `roles` here: empty means "use the built-in
+  // implementation roles" rather than "no roles", so it must not be passed
+  // through as an empty allowlist.
+  const delegationCfg = configStore.current.delegation as { requireTaskSize?: boolean; maxDelegatedSize?: 'XS' | 'S' | 'M' | 'L' | 'XL'; sizedRoles?: string[] } | undefined;
+  updateConfig({
+    delegation: delegationCfg
+      ? {
+        requireTaskSize: delegationCfg.requireTaskSize,
+        maxDelegatedSize: delegationCfg.maxDelegatedSize,
+        ...(delegationCfg.sizedRoles?.length ? { roles: delegationCfg.sizedRoles } : {}),
+      }
+      : undefined,
+  });
   // Re-read config so all services see restored values
   const effectiveConfig = getConfig();
 
