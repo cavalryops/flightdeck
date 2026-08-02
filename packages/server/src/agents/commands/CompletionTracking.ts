@@ -10,6 +10,7 @@ import type { DagTask } from '../../tasks/TaskDAG.js';
 import { logger } from '../../utils/logger.js';
 import { redact } from '../../utils/redaction.js';
 import { shortAgentId } from '@flightdeck/shared';
+import { producesVerdict } from './verdictRoles.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -118,6 +119,22 @@ export function notifyParentOfIdle(ctx: CommandHandlerContext, agent: Agent): vo
   if (agent.parentId) {
     const dagTask = ctx.taskDAG.getTaskByAgent(agent.parentId, agent.id);
     if (dagTask && dagTask.dagStatus === 'running') {
+      // A reviewer or tester going idle means its verdict is in, NOT that the
+      // work passed. Auto-completing here conflated the two and deadlocked the
+      // lead: the report said "FAIL: four BLOCKING findings" while the DAG said
+      // done, and every follow-up was refused with "already done — no action
+      // needed". Park it in `in_review` so the lead must decide explicitly.
+      if (producesVerdict(agent.role.id) && ctx.taskDAG.reviewTask(agent.parentId, dagTask.id)) {
+        const dagParent = ctx.getAgent(agent.parentId);
+        if (dagParent) {
+          dagParent.sendMessage(
+            `[System] Task "${dagTask.id}" is awaiting your verdict — ${agent.role.name} has reported but the task is NOT complete. `
+            + `Read the findings above, then either COMPLETE_TASK (accepted) or FAIL_TASK (blocking issues remain, then reopen or re-delegate the work).`,
+          );
+        }
+        checkCoverageWarning(ctx, agent.parentId!);
+        return;
+      }
       const newlyReady = ctx.taskDAG.completeTask(agent.parentId, dagTask.id);
       if (newlyReady && newlyReady.length > 0) {
         const dagParent = ctx.getAgent(agent.parentId);
