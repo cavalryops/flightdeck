@@ -27,6 +27,7 @@ const modelsSchema = z.object({
 
 const roleOverrideSchema = z.object({
   model: z.string().optional(),
+  provider: z.string().optional(),
 }).passthrough();
 
 // ── Provider schema ────────────────────────────────────────
