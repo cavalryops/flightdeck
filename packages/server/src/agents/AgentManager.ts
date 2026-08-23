@@ -458,6 +458,13 @@ export class AgentManager extends TypedEmitter<AgentManagerEvents> {
     if (options?.projectName) agent.projectName = options.projectName;
     if (options?.projectId) agent.projectId = asProjectId(options.projectId);
     if (options?.provider) agent.provider = options.provider;
+    // Per-role default provider from config (roles.<id>.provider) — lets a role
+    // (e.g. developer) always use a specific provider (e.g. opencode/local) without
+    // passing it per spawn. Falls through to the global default below.
+    if (!agent.provider && this.configStore) {
+      const roleProvider = this.configStore.current.roles?.[role.id]?.provider as string | undefined;
+      if (roleProvider) agent.provider = roleProvider;
+    }
     // Default provider from ServerConfig so even queued agents show a provider in the UI.
     // The post-ACP roster update (onSessionReady) overwrites with the final resolved value.
     if (!agent.provider && this.config.provider) agent.provider = this.config.provider;
