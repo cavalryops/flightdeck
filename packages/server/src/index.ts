@@ -15,9 +15,15 @@ import { createContainer, wireHttpLayer } from './container.js';
 import { apiRouter } from './api.js';
 import { WebSocketServer } from './comms/WebSocketServer.js';
 
-// __dirname = packages/server/dist/ → repo root is 3 levels up
+// Repo root for agent worktrees, config discovery, and code analysis.
+// Defaults to 3 levels up from packages/server/dist/, but can be overridden
+// via FLIGHTDECK_REPO_ROOT — mirroring FLIGHTDECK_CONFIG/STATE_DIR/DB_PATH.
+// This lets Flightdeck run from a source checkout while creating agent git
+// worktrees in a separate scratch repo, so the checkout is never polluted.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, '../../..');
+const repoRoot = process.env.FLIGHTDECK_REPO_ROOT
+  ? path.resolve(process.env.FLIGHTDECK_REPO_ROOT)
+  : path.resolve(__dirname, '../../..');
 
 const authToken = initAuth();
 const config = getConfig();
